@@ -1,7 +1,7 @@
 name: Build Complete System Design EPUB
 
 on:
-  workflow_dispatch: # 允许在 GitHub 网页上手动点击运行
+  workflow_dispatch:
 
 jobs:
   build-book:
@@ -10,30 +10,45 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build All-in-One EPUB
+      - name: Install Pandoc
         run: |
-          # 1. 自动收集 Volume 1 的所有章节（按文件名升序排列）
-          find . -maxdepth 1 -name "CHAPTER*.md" | sort -V > book_files.txt
+          sudo apt-get update
+          sudo apt-get install -y pandoc
 
-          # 2. 如果存在 Volume 2 目录，将 Volume 2 的章节追加到后面
-          if [ -d "Volume2" ]; then
-            find Volume2 -name "*.md" | sort -V >> book_files.txt
-          fi
+      - name: Build All-in-One EPUB via Python Runner
+        run: |
+          python3 - << 'EOF'
+          import os
+          import glob
+          import subprocess
 
-          echo "待编译的章节列表："
-          cat book_files.txt
+          # 1. 获取 Volume 1 的章节（按文件名排序）
+          vol1_files = sorted(glob.glob("CHAPTER*.md"))
 
-          # 3. 调用 Pandoc 官方容器，将提取出的所有章节按顺序打包为一本 EPUB
-          docker run --rm \
-            -v "$(pwd)":/data \
-            pandoc/core:3.8 \
-            -s \
-            --toc \
-            --metadata title="系统设计面试：内幕指南（全集 Vol 1 & 2）" \
-            --metadata author="Alex Xu (译者: Admol 社区)" \
-            --file-scope \
-            -o /data/SystemDesign_Complete.epub \
-            $(cat book_files.txt)
+          # 2. 获取 Volume 2 的章节（如果存在）
+          vol2_files = []
+          if os.path.exists("Volume2"):
+              vol2_files = sorted(glob.glob("Volume2/**/*.md", recursive=True))
+
+          all_files = vol1_files + vol2_files
+
+          print(f"找到 {len(all_files)} 个章节文件：")
+          for f in all_files:
+              print(f" - {f}")
+
+          # 3. 构造精准参数列表，避免空格断词
+          cmd = [
+              "pandoc",
+              "-s",
+              "--toc",
+              "--metadata", "title=系统设计面试：内幕指南（全集 Vol 1 & 2）",
+              "--metadata", "author=Alex Xu (译者: Admol 社区)",
+              "--file-scope",
+              "-o", "SystemDesign_Complete.epub"
+          ] + all_files
+
+          subprocess.run(cmd, check=True)
+          EOF
 
       - name: Verify build output
         run: |
