@@ -16,7 +16,7 @@ jobs:
           sudo apt-get install -y pandoc fonts-noto-cjk
           python3 -m pip install pillow
 
-      - name: Build Kindle-Optimized EPUB with Cool Cover
+      - name: Build Kindle-Optimized EPUB with Native Chinese Fonts
         run: |
           python3 - << 'EOF'
           import os
@@ -25,7 +25,7 @@ jobs:
           import random
           from PIL import Image, ImageDraw, ImageFont
 
-          # 1. 自动生成极简分布式架构蓝图封面 (1600x2560 高清)
+          # 1. 绘制高清极客蓝图封面 (1600x2560)
           width, height = 1600, 2560
           img = Image.new("RGB", (width, height), color="#0f172a")
           draw = ImageDraw.Draw(img)
@@ -74,7 +74,7 @@ jobs:
           cover_file = "cover.png"
           img.save(cover_file, "PNG")
 
-          # 2. 修正 CSS：显式设置底色为纯白 #ffffff，杜绝黑底，同时解除字体锁定
+          # 2. 生成专为中文 Kindle 适配的纯白底与字体渲染 CSS
           css_content = """
           @namespace "http://www.w3.org/1999/xhtml";
           html, body {
@@ -87,6 +87,10 @@ jobs:
           p, div, span, blockquote, pre, code {
               background-color: #ffffff !important;
               color: #000000 !important;
+          }
+          /* 规整粗体字重，杜绝墨水屏描边畸变 */
+          strong, b {
+              font-weight: bold !important;
           }
           img {
               max-width: 100% !important;
@@ -103,7 +107,7 @@ jobs:
           with open("kindle_clean.css", "w", encoding="utf-8") as f:
               f.write(css_content)
 
-          # 3. 收集文件并构建 EPUB3
+          # 3. 收集所有章节文件
           vol1_files = sorted(glob.glob("CHAPTER*.md"))
           vol2_files = []
           if os.path.exists("Volume2"):
@@ -111,10 +115,11 @@ jobs:
 
           all_files = vol1_files + vol2_files
 
+          # 4. 关键注入：--metadata lang=zh-CN 激活 Kindle 中文字体引擎
           cmd = [
               "pandoc",
               "-f", "gfm+east_asian_line_breaks",
-              "-t", "epub3",  # 显式使用标准的 EPUB3 格式
+              "-t", "epub3",
               "-s",
               "--toc",
               "--toc-depth=2",
@@ -122,9 +127,10 @@ jobs:
               "--epub-chapter-level=1",
               "--css=kindle_clean.css",
               f"--epub-cover-image={cover_file}",
+              "--metadata", "lang=zh-CN",
+              "--metadata", "language=zh-CN",
               "--metadata", "title=系统设计面试：内幕指南（全集 Vol 1 & 2）",
               "--metadata", "author=Alex Xu (译者: Admol 社区)",
-              # 注意：已移除会导致目录锚点断裂的 --file-scope
               "-o", "SystemDesign_Complete.epub"
           ] + all_files
 
