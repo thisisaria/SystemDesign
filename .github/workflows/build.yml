@@ -1,0 +1,46 @@
+name: Build Complete System Design EPUB
+
+on:
+  workflow_dispatch: # 允许在 GitHub 网页上手动点击运行
+
+jobs:
+  build-book:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build All-in-One EPUB
+        run: |
+          # 1. 自动收集 Volume 1 的所有章节（按文件名升序排列）
+          find . -maxdepth 1 -name "CHAPTER*.md" | sort -V > book_files.txt
+
+          # 2. 如果存在 Volume 2 目录，将 Volume 2 的章节追加到后面
+          if [ -d "Volume2" ]; then
+            find Volume2 -name "*.md" | sort -V >> book_files.txt
+          fi
+
+          echo "待编译的章节列表："
+          cat book_files.txt
+
+          # 3. 调用 Pandoc 官方容器，将提取出的所有章节按顺序打包为一本 EPUB
+          docker run --rm \
+            -v "$(pwd)":/data \
+            pandoc/core:3.8 \
+            -s \
+            --toc \
+            --metadata title="系统设计面试：内幕指南（全集 Vol 1 & 2）" \
+            --metadata author="Alex Xu (译者: Admol 社区)" \
+            --file-scope \
+            -o /data/SystemDesign_Complete.epub \
+            $(cat book_files.txt)
+
+      - name: Verify build output
+        run: |
+          ls -lh SystemDesign_Complete.epub
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SystemDesign_Complete_EPUB
+          path: SystemDesign_Complete.epub
