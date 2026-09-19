@@ -10,37 +10,124 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Pandoc
+      - name: Install Pandoc, Fonts and Pillow
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc
+          sudo apt-get install -y pandoc fonts-noto-cjk
+          python3 -m pip install pillow
 
-      - name: Build All-in-One EPUB via Python Runner
+      - name: Build Kindle-Optimized EPUB with Cool Cover
         run: |
           python3 - << 'EOF'
           import os
           import glob
           import subprocess
+          import random
+          from PIL import Image, ImageDraw, ImageFont
 
-          # 1. 获取 Volume 1 的章节（按文件名排序）
+          # ==========================================
+          # 1. 自动生成极简分布式架构蓝图封面 (1600x2560 高清)
+          # ==========================================
+          width, height = 1600, 2560
+          # 深邃黑底，墨水屏对比度极佳
+          img = Image.new("RGB", (width, height), color="#0f172a")
+          draw = ImageDraw.Draw(img)
+
+          # 绘制背景分布式拓扑网络节点与连接线
+          random.seed(42)  # 固定随机种子保证构图优雅
+          nodes = []
+          for _ in range(35):
+              nx = random.randint(100, width - 100)
+              ny = random.randint(950, height - 250)
+              nodes.append((nx, ny))
+
+          # 画连接线 (灰度线，在 Kindle 上呈现精致的淡灰架构网)
+          for i in range(len(nodes)):
+              for j in range(i + 1, len(nodes)):
+                  dist = ((nodes[i][0] - nodes[j][0])**2 + (nodes[i][1] - nodes[j][1])**2)**0.5
+                  if dist < 320:
+                      draw.line([nodes[i], nodes[j]], fill="#334155", width=2)
+
+          # 画节点光圈与核心微服务圆点
+          for nx, ny in nodes:
+              draw.ellipse([nx-12, ny-12, nx+12, ny+12], fill="#1e293b", outline="#64748b", width=3)
+              draw.ellipse([nx-4, ny-4, nx+4, ny+4], fill="#f8fafc")
+
+          # 加载系统开源思源黑体
+          font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+          if not os.path.exists(font_path):
+              font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+          f_tag = ImageFont.truetype(font_path, 42)
+          f_title_en = ImageFont.truetype(font_path, 110)
+          f_title_cn = ImageFont.truetype(font_path, 76)
+          f_sub = ImageFont.truetype(font_path, 46)
+          f_author = ImageFont.truetype(font_path, 40)
+
+          # 绘制几何边框外饰
+          draw.rectangle([60, 60, width - 60, height - 60], outline="#475569", width=4)
+          draw.line([100, 480, width - 100, 480], fill="#38bdf8", width=6) # 亮色横断线
+
+          # 绘制顶部 Badge 徽章
+          draw.rectangle([100, 140, 520, 210], fill="#1e293b", outline="#38bdf8", width=2)
+          draw.text((125, 152), "DISTRIBUTED SYSTEMS", fill="#38bdf8", font=f_tag)
+
+          # 绘制主标题
+          draw.text((100, 240), "SYSTEM DESIGN", fill="#ffffff", font=f_title_en)
+          draw.text((100, 360), "INTERVIEW GUIDE", fill="#94a3b8", font=f_title_en)
+
+          # 绘制中文书名与合辑标识
+          draw.text((100, 530), "系统设计面试：内幕指南", fill="#ffffff", font=f_title_cn)
+          draw.text((100, 640), "全集典藏版 · Volume 1 & Volume 2", fill="#38bdf8", font=f_sub)
+
+          # 绘制底部作者与规格信息
+          draw.rectangle([100, height - 200, width - 100, height - 198], fill="#334155")
+          draw.text((100, height - 160), "AUTHOR: ALEX XU  |  COMMUNITY EDITION", fill="#94a3b8", font=f_author)
+          draw.text((width - 450, height - 160), "KINDLE PW3 OPTIMIZED", fill="#64748b", font=f_author)
+
+          # 保存高清封面文件
+          cover_file = "cover.png"
+          img.save(cover_file, "PNG")
+          print("炫酷封面已生成完毕！")
+
+          # ==========================================
+          # 2. 生成透明白底、解锁 Aa 字体的 CSS
+          # ==========================================
+          css_content = """
+          @namespace "http://www.w3.org/1999/xhtml";
+          html, body, p, div, span, blockquote, pre, code {
+              background: transparent !important;
+              background-color: transparent !important;
+              color: #000000 !important;
+          }
+          body { margin: 0; padding: 0; line-height: 1.5; }
+          img { max-width: 100% !important; height: auto !important; display: block; margin: 1em auto; }
+          h1, h2, h3 { page-break-before: always; text-align: left; }
+          """
+          with open("kindle_clean.css", "w", encoding="utf-8") as f:
+              f.write(css_content)
+
+          # ==========================================
+          # 3. 收集章节并调用 Pandoc 挂载封面编译
+          # ==========================================
           vol1_files = sorted(glob.glob("CHAPTER*.md"))
-
-          # 2. 获取 Volume 2 的章节（如果存在）
           vol2_files = []
           if os.path.exists("Volume2"):
               vol2_files = sorted(glob.glob("Volume2/**/*.md", recursive=True))
 
           all_files = vol1_files + vol2_files
 
-          print(f"找到 {len(all_files)} 个章节文件：")
-          for f in all_files:
-              print(f" - {f}")
-
-          # 3. 构造精准参数列表，避免空格断词
           cmd = [
               "pandoc",
+              "-f", "gfm+east_asian_line_breaks",
               "-s",
               "--toc",
+              "--toc-depth=2",
+              "--split-level=1",
+              "--epub-chapter-level=1",
+              "--css=kindle_clean.css",
+              # 关键：注入生成的封面
+              f"--epub-cover-image={cover_file}",
               "--metadata", "title=系统设计面试：内幕指南（全集 Vol 1 & 2）",
               "--metadata", "author=Alex Xu (译者: Admol 社区)",
               "--file-scope",
